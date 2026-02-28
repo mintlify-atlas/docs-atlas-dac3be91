@@ -24,8 +24,8 @@ These dependencies will be installed automatically when you install Arnoldi.
     The project uses `uv` for dependency management. If you have `uv` installed, simply clone the repository and sync:
 
     ```bash
-    git clone <repository-url>
-    cd arnoldi
+    git clone https://github.com/cournape/arnoldi-py.git
+    cd arnoldi-py
     uv sync
     ```
 
@@ -33,27 +33,25 @@ These dependencies will be installed automatically when you install Arnoldi.
   </Step>
 
   <Step title="Alternative: Install using pip">
-    You can install Arnoldi using pip:
+    Install from source using pip:
 
     ```bash
-    pip install arnoldi
-    ```
-
-    Or install from source:
-
-    ```bash
-    git clone <repository-url>
-    cd arnoldi
+    git clone https://github.com/cournape/arnoldi-py.git
+    cd arnoldi-py
     pip install .
     ```
+
+    <Note>
+      Arnoldi is not yet published on PyPI. Install from source as shown above.
+    </Note>
   </Step>
 
   <Step title="Alternative: Install using poetry">
     If you prefer using poetry:
 
     ```bash
-    git clone <repository-url>
-    cd arnoldi
+    git clone https://github.com/cournape/arnoldi-py.git
+    cd arnoldi-py
     poetry install
     ```
   </Step>
