@@ -1,97 +1,53 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: Introduction
+description: Pure Python eigensolver for sparse matrices using the Krylov-Schur algorithm
 ---
 
-## Setting up
+# Welcome to Arnoldi
 
-Get your documentation site up and running in minutes.
+Arnoldi is a pure Python eigensolver for sparse matrices that only relies on NumPy and BLAS/LAPACK, without depending on ARPACK. It implements modern algorithms for computing eigenvalues and eigenvectors of large sparse matrices.
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
+## What is Arnoldi?
 
-## Make it yours
+Arnoldi is an attempt to create a viable replacement for `scipy.sparse.linalg.eigs` that removes the Fortran dependency while incorporating modern improvements in sparse eigenvalue computation. The library uses the **Krylov-Schur algorithm**, a more recent and stable approach compared to the traditional implicit restarted Arnoldi method used in ARPACK.
 
-Design a docs site that looks great and empowers your users.
+## Key Features
 
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+- **Pure Python Implementation**: No ARPACK or Fortran dependencies, only NumPy and BLAS/LAPACK
+- **Krylov-Schur Algorithm**: Modern algorithm for large eigenvalue problems with improved stability
+- **Thread-Safe & Re-entrant**: Unlike ARPACK-NG, Arnoldi is designed to be thread-safe and re-entrant
+- **Multiple Orthonormalization Strategies**: Supports Modified Gram-Schmidt (MGS) and Daniel, Gragg, Kaufman, and Stewart (DGKS) methods
+- **Explicit Restart with Deflation**: Efficient convergence tracking and restart capabilities
+- **Built-in Test Matrices**: Includes test matrices from the sparse matrix suite plus synthetic matrices (Markov, Laplace, etc.)
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Get started by installing Arnoldi using uv, pip, or poetry
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Learn the basics with a simple eigenvalue computation example
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="API Reference" icon="code" href="/api/partial-schur">
+    Explore the partial_schur function and its parameters
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Examples" icon="book" href="/examples/basic-usage">
+    View comprehensive examples and use cases
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## Why Arnoldi?
 
-Everything you need to create world-class documentation.
+ARPACK-NG is a widely-used Fortran library for sparse eigenvalue solvers, but it has several limitations:
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+- **Not Thread-Safe**: The Fortran code is not thread-safe and, in particular, is not re-entrant, making it unsuitable for parallel applications
+- **Outdated Algorithm**: It does not incorporate more recent improvements discovered for large problems, such as the Krylov-Schur algorithm introduced by G. W. Stewart in 2001 ("A Krylov-Schur Algorithm for Large Eigenproblems," SIAM J. Matrix Anal. Appl., Vol. 23, No. 3, pp. 601–614)
 
-## Need inspiration?
+Arnoldi addresses these issues by providing a modern, maintainable, and thread-safe implementation in pure Python.
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<Note>
+  **Project Status**: Arnoldi is not yet recommended for production use. The API may change, especially in terms of convergence tracking and history. The goal is to eventually be incorporated into the SciPy codebase as a replacement for the ARPACK-based eigensolvers.
+</Note>
+
+## Getting Started
+
+Ready to compute eigenvalues? Start with the [installation guide](/installation) to set up Arnoldi, then follow the [quick start guide](/quickstart) to run your first eigenvalue computation.

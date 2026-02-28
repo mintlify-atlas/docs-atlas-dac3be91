@@ -1,0 +1,136 @@
+---
+title: 'partial_schur'
+description: 'Compute a partial Schur decomposition using the Krylov-Schur algorithm'
+---
+
+## Function Signature
+
+```python
+partial_schur(
+    A,
+    nev,
+    *,
+    max_dim=None,
+    stopping_criterion=None,
+    max_restarts=100,
+    sort_function=None,
+    p=None
+)
+```
+
+Compute a partial Schur decomposition using the Krylov-Schur algorithm. This is the main high-level function for computing eigenvalues and eigenvectors of large sparse matrices.
+
+## Parameters
+
+<ParamField path="A" type="ndarray of shape (n, n)" required>
+  Square matrix to decompose. Can be dense or sparse.
+</ParamField>
+
+<ParamField path="nev" type="int" required>
+  Number of eigenvalues to compute.
+</ParamField>
+
+<ParamField path="max_dim" type="int" default="min(max(2 * nev + 1, 20), n)">
+  Maximum dimension of the Krylov subspace. A larger value may improve convergence but increases memory usage and computational cost per restart.
+</ParamField>
+
+<ParamField path="stopping_criterion" type="float" default="sqrt(eps)">
+  Convergence tolerance for the approximate residuals. Defaults to the square root of machine epsilon for the matrix dtype.
+</ParamField>
+
+<ParamField path="max_restarts" type="int" default="100">
+  Maximum number of restarts allowed before failing with non-convergence.
+</ParamField>
+
+<ParamField path="sort_function" type="callable" default="arg_largest_magnitude">
+  Function to sort eigenvalues. Takes an array of eigenvalues and returns indices in desired order. Common options:
+  - `arg_largest_magnitude` (default): largest magnitude eigenvalues
+  - `arg_largest_real`: largest real part eigenvalues
+</ParamField>
+
+<ParamField path="p" type="int" default="min(nev + 5, max_dim - 1)">
+  Size of the active subspace after compression during restart. Must satisfy `nev <= p < max_dim`. Larger values preserve more information but increase cost per restart.
+</ParamField>
+
+## Returns
+
+<ResponseField name="Q" type="ndarray of shape (n, nev)">
+  Schur vectors (orthonormal basis for the invariant subspace).
+</ResponseField>
+
+<ResponseField name="T" type="ndarray of shape (nev, nev)">
+  Upper triangular Schur matrix. The eigenvalues are on the diagonal.
+</ResponseField>
+
+<ResponseField name="history" type="History">
+  Convergence history containing:
+  - `matvecs`: Array of matrix-vector products needed for each eigenvalue
+  - `restarts`: Array of restart counts for each eigenvalue
+</ResponseField>
+
+## Example
+
+```python
+import numpy as np
+from arnoldi.krylov_schur import partial_schur
+from arnoldi.matrices import mark
+from arnoldi.utils import arg_largest_real
+
+# Markov walk matrix
+A = mark(50)
+
+TOL = 1e-8
+MAX_RESTARTS = 1_000
+MAX_DIMS = 20
+K = 5
+SORT_FUNCTION = arg_largest_real
+
+Q, T, history = partial_schur(
+    A,
+    K,
+    max_dim=MAX_DIMS,
+    stopping_criterion=TOL,
+    sort_function=SORT_FUNCTION,
+    max_restarts=MAX_RESTARTS,
+)
+
+# Convert Schur transform into eigenpairs
+vals, S = np.linalg.eig(T)
+vecs = Q @ S
+
+print("Eigenvalues:", vals)
+print("Total matvecs:", history.total_matvecs)
+```
+
+## Notes
+
+### Convergence
+
+The algorithm monitors convergence using approximate residuals computed from the Schur decomposition:
+
+```python
+approximate_residuals = |H[m, m-1] * Q[m-1, :]|
+approximate_convergence = approximate_residuals / |diag(T)|
+```
+
+An eigenvalue is considered converged when its approximate convergence is below the `stopping_criterion`.
+
+### Happy Breakdown
+
+A "happy breakdown" occurs when the Arnoldi decomposition finds an invariant subspace before reaching `max_dim`. This indicates exact convergence. Currently, happy breakdown detection is implemented but not fully supported and will raise an error.
+
+### Schur vs Eigendecomposition
+
+This function returns a Schur decomposition (A = Q T Q*) rather than an eigendecomposition. To get eigenvectors:
+
+```python
+Q, T, history = partial_schur(A, nev)
+vals, S = np.linalg.eig(T)
+vecs = Q @ S
+```
+
+The Schur form is numerically more stable and is standard for non-Hermitian matrices.
+
+## Source Location
+
+`src/arnoldi/krylov_schur.py:10`

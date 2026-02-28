@@ -1,0 +1,201 @@
+---
+title: 'Orthonormalization'
+description: 'DGKS-based orthonormalization with double reorthogonalization'
+---
+
+## dgks_gs
+
+```python
+dgks_gs(
+    w: np.ndarray,
+    V: np.ndarray,
+    h: np.ndarray,
+    tol: float = 1e-8,
+    eta = M_SQRT1_2
+)
+```
+
+Double reorthonormalization using Gram-Schmidt with DGKS criterion to trigger double orthonormalization. This is the recommended fast implementation using BLAS operations.
+
+### Parameters
+
+<ParamField path="w" type="ndarray of shape (n,)" required>
+  The vector to orthonormalize. Modified in place.
+</ParamField>
+
+<ParamField path="V" type="ndarray of shape (n, j)" required>
+  The orthonormal basis to orthonormalize against.
+</ParamField>
+
+<ParamField path="h" type="ndarray of shape (j,)" required>
+  Array to accumulate the scalar products ⟨V[:, i], w⟩. Modified in place.
+</ParamField>
+
+<ParamField path="tol" type="float" default="1e-8">
+  Breakdown tolerance. If the norm of w after orthonormalization is below this threshold, breakdown is detected.
+</ParamField>
+
+<ParamField path="eta" type="float" default="√0.5 ≈ 0.707">
+  DGKS threshold parameter. Double reorthonormalization is performed if ||w_after|| / ||w_before|| < eta.
+</ParamField>
+
+### Returns
+
+<ResponseField name="beta" type="float">
+  The final norm of w after orthonormalization.
+</ResponseField>
+
+<ResponseField name="breakdown" type="bool">
+  True if w could not be orthonormalized against V (i.e., w is in the span of V), which occurs when beta < tol.
+</ResponseField>
+
+### Example
+
+```python
+import numpy as np
+from arnoldi.ortho import dgks_gs
+
+# Create an orthonormal basis
+V = np.random.randn(100, 10)
+V, _ = np.linalg.qr(V)
+
+# Create a vector to orthonormalize
+w = np.random.randn(100)
+
+# Orthonormalize w against V
+h = np.zeros(10)
+beta, breakdown = dgks_gs(w, V, h, tol=1e-10)
+
+if not breakdown:
+    # Normalize w
+    w /= beta
+    
+    # Verify orthogonality
+    dots = V.T @ w
+    print(f"Max |⟨V[:, i], w⟩|: {np.abs(dots).max():.2e}")  # Should be ~1e-15
+    print(f"||w||: {np.linalg.norm(w):.10f}")  # Should be 1.0
+else:
+    print("Breakdown detected: w is in span(V)")
+```
+
+### Notes
+
+#### DGKS Criterion
+
+The DGKS (Daniel, Gragg, Kaufman, Stewart) criterion automatically determines when double orthonormalization is needed to maintain numerical stability. If after one round of orthonormalization:
+
+```
+||w_after|| < η * ||w_before||
+```
+
+then a second round is performed. The default η = √0.5 ≈ 0.707 is theoretically justified and works well in practice.
+
+#### Performance
+
+This implementation uses BLAS routines (`gemv` for matrix-vector products and `nrm2` for norms) and is significantly faster than the MGS version (`dgks_mgs`), especially for large problems. Using standard Gram-Schmidt (GS) with DGKS is sufficient; Modified Gram-Schmidt (MGS) offers no additional benefit when DGKS double reorthogonalization is used.
+
+#### Reference
+
+See "On the loss of orthogonality in the Gram-Schmidt orthogonalization process" by Giraud, Langou, and Rozložník (2005) for the theoretical justification.
+
+### Source Location
+
+`src/arnoldi/ortho.py:56`
+
+---
+
+## dgks_mgs
+
+```python
+dgks_mgs(
+    w: np.ndarray,
+    V: np.ndarray,
+    h: np.ndarray,
+    tol: float = 1e-8,
+    eta = M_SQRT1_2
+)
+```
+
+Reorthonormalization using Modified Gram-Schmidt (MGS) with DGKS-controlled double reorthonormalization.
+
+### Parameters
+
+<ParamField path="w" type="ndarray of shape (n,)" required>
+  The vector to orthonormalize. Modified in place.
+</ParamField>
+
+<ParamField path="V" type="ndarray of shape (n, j)" required>
+  The orthonormal basis to orthonormalize against.
+</ParamField>
+
+<ParamField path="h" type="ndarray of shape (j,)" required>
+  Array to accumulate the scalar products. Modified in place.
+</ParamField>
+
+<ParamField path="tol" type="float" default="1e-8">
+  Breakdown tolerance. Breakdown detected if beta < tol.
+</ParamField>
+
+<ParamField path="eta" type="float" default="√0.5 ≈ 0.707">
+  DGKS threshold parameter for triggering double reorthonormalization.
+</ParamField>
+
+### Returns
+
+<ResponseField name="beta" type="float">
+  The final norm of w after orthonormalization.
+</ResponseField>
+
+<ResponseField name="breakdown" type="bool">
+  True if w could not be orthonormalized against V.
+</ResponseField>
+
+### Example
+
+```python
+import numpy as np
+from arnoldi.ortho import dgks_mgs
+
+# Create an orthonormal basis
+V = np.random.randn(100, 10)
+V, _ = np.linalg.qr(V)
+
+# Create a vector to orthonormalize
+w = np.random.randn(100)
+h = np.zeros(10)
+
+beta, breakdown = dgks_mgs(w, V, h, tol=1e-10)
+
+if not breakdown:
+    w /= beta
+    print(f"Orthonormalization successful, beta = {beta:.6f}")
+else:
+    print("Breakdown detected")
+```
+
+### Notes
+
+#### Modified Gram-Schmidt
+
+MGS processes the basis vectors one at a time in a loop:
+
+```python
+for i in range(j):
+    h[i] = ⟨V[:, i], w⟩
+    w -= h[i] * V[:, i]
+```
+
+This is more numerically stable than classical Gram-Schmidt in finite precision, but is slower due to the sequential loop structure.
+
+#### Performance Comparison
+
+For Python/NumPy implementations, `dgks_gs` (using classical Gram-Schmidt with BLAS) is typically 2-3× faster than `dgks_mgs` because:
+- BLAS `gemv` is highly optimized
+- Classical GS avoids the sequential loop
+- With DGKS double reorthogonalization, both achieve similar accuracy
+
+Use `dgks_gs` unless you have a specific reason to use MGS.
+
+### Source Location
+
+`src/arnoldi/ortho.py:9`

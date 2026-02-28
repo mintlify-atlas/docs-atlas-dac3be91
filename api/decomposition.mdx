@@ -1,0 +1,218 @@
+---
+title: 'Decomposition'
+description: 'Core Arnoldi decomposition algorithm and Ritz value computation'
+---
+
+## arnoldi_decomposition
+
+```python
+arnoldi_decomposition(
+    A,
+    V,
+    H,
+    invariant_tol=None,
+    *,
+    start_dim=0,
+    max_dim=None
+)
+```
+
+Run the Arnoldi decomposition for square matrix A. This is the core algorithm that builds an orthonormal Krylov basis and corresponding Hessenberg matrix.
+
+### Parameters
+
+<ParamField path="A" type="ndarray of shape (n, n)" required>
+  Square matrix to be decomposed.
+</ParamField>
+
+<ParamField path="V" type="ndarray of shape (n, m+1)" required>
+  The Krylov basis built by the Arnoldi decomposition. Modified in place. The first column V[:, 0] should contain the initial normalized vector.
+</ParamField>
+
+<ParamField path="H" type="ndarray of shape (m+1, m)" required>
+  Storage for the Hessenberg matrix. H[:m, :m] will contain the upper Hessenberg matrix from the decomposition. Modified in place.
+</ParamField>
+
+<ParamField path="invariant_tol" type="float" default="sqrt(eps)">
+  Threshold that controls when the decomposition detects an invariant subspace, i.e., when a new vector has norm below this threshold ("happy breakdown").
+</ParamField>
+
+<ParamField path="start_dim" type="int" default="0">
+  Starting dimension for the Arnoldi iteration. Use when restarting or continuing from a previous decomposition.
+</ParamField>
+
+<ParamField path="max_dim" type="int" default="m">
+  Maximum dimension of the Krylov space. By default, inferred from V.shape.
+</ParamField>
+
+### Returns
+
+<ResponseField name="Va" type="ndarray of shape (n, max_dim+1)">
+  The orthonormal Krylov basis vectors.
+</ResponseField>
+
+<ResponseField name="Ha" type="ndarray of shape (max_dim+1, max_dim)">
+  The upper Hessenberg matrix from the Arnoldi relation: A @ V[:, :m] ≈ V[:, :m+1] @ H[:m+1, :m]
+</ResponseField>
+
+<ResponseField name="n_iter" type="int">
+  Number of iterations actually run (≤ max_dim). Lower than max_dim if a "happy breakdown" occurs, meaning an invariant subspace was found.
+</ResponseField>
+
+### Example
+
+```python
+import numpy as np
+from arnoldi.decomposition import arnoldi_decomposition
+
+n = 100
+m = 20
+A = np.random.randn(n, n)
+
+# Initialize storage
+V = np.zeros((n, m+1), dtype=complex)
+H = np.zeros((m+1, m), dtype=complex)
+
+# Set initial vector
+v0 = np.random.randn(n)
+V[:, 0] = v0 / np.linalg.norm(v0)
+
+# Run decomposition
+Va, Ha, n_iter = arnoldi_decomposition(A, V, H, max_dim=m)
+
+print(f"Completed {n_iter} iterations")
+```
+
+### Source Location
+
+`src/arnoldi/decomposition.py:13`
+
+---
+
+## RitzDecomposition
+
+```python
+@dataclass
+class RitzDecomposition:
+    values: np.ndarray
+    vectors: np.ndarray
+    approximate_residuals: np.ndarray
+```
+
+A dataclass containing Ritz values (approximate eigenvalues), Ritz vectors (approximate eigenvectors), and their approximate residuals from an Arnoldi decomposition.
+
+### Attributes
+
+<ResponseField name="values" type="ndarray of shape (n_ritz,)">
+  Ritz values (approximate eigenvalues of A).
+</ResponseField>
+
+<ResponseField name="vectors" type="ndarray of shape (n, n_ritz)">
+  Ritz vectors (approximate eigenvectors of A).
+</ResponseField>
+
+<ResponseField name="approximate_residuals" type="ndarray of shape (n_ritz,)">
+  Approximate residuals ||A u_i - λ_i u_i|| ≈ |h[m, m-1]| * |⟨e_m, s_i⟩|, where u_i is the Ritz vector and λ_i is the Ritz value.
+</ResponseField>
+
+### from_v_and_h
+
+```python
+@classmethod
+from_v_and_h(
+    cls,
+    V,
+    H,
+    n_ritz,
+    *,
+    max_dim=None,
+    sort_function=None
+)
+```
+
+Compute the Ritz decomposition from Arnoldi basis V and Hessenberg matrix H.
+
+#### Parameters
+
+<ParamField path="V" type="ndarray of shape (n, max_dim+1)" required>
+  The orthonormal basis from Arnoldi decomposition.
+</ParamField>
+
+<ParamField path="H" type="ndarray of shape (max_dim+1, max_dim)" required>
+  The upper Hessenberg matrix from Arnoldi decomposition.
+</ParamField>
+
+<ParamField path="n_ritz" type="int" required>
+  Number of Ritz values/vectors to extract.
+</ParamField>
+
+<ParamField path="max_dim" type="int" default="V.shape[1] - 1">
+  Number of vectors to consider in V.
+</ParamField>
+
+<ParamField path="sort_function" type="callable" default="arg_largest_magnitude">
+  Function to sort eigenvalues. Takes eigenvalues array and returns sorted indices.
+</ParamField>
+
+#### Returns
+
+<ResponseField name="ritz" type="RitzDecomposition">
+  RitzDecomposition object containing sorted Ritz values, vectors, and approximate residuals.
+</ResponseField>
+
+#### Example
+
+```python
+from arnoldi.decomposition import RitzDecomposition, arnoldi_decomposition
+from arnoldi.utils import arg_largest_real
+
+# After running arnoldi_decomposition
+Va, Ha, n_iter = arnoldi_decomposition(A, V, H, max_dim=20)
+
+# Extract top 5 Ritz pairs
+ritz = RitzDecomposition.from_v_and_h(
+    Va, Ha, n_ritz=5, sort_function=arg_largest_real
+)
+
+print("Ritz values:", ritz.values)
+print("Approximate residuals:", ritz.approximate_residuals)
+```
+
+### compute_true_residuals
+
+```python
+compute_true_residuals(self, A)
+```
+
+Compute the true residuals ||A v_i - λ_i v_i|| for each Ritz pair.
+
+#### Parameters
+
+<ParamField path="A" type="ndarray of shape (n, n)" required>
+  The matrix from which the Ritz decomposition was computed.
+</ParamField>
+
+#### Returns
+
+<ResponseField name="residuals" type="ndarray of shape (n_ritz,)">
+  True residual norms for each Ritz pair.
+</ResponseField>
+
+#### Notes
+
+This is expensive as it requires projection back into the original matrix A (computing A @ v_i for each Ritz vector). Use approximate residuals for convergence monitoring when possible.
+
+#### Example
+
+```python
+# Check actual convergence
+true_residuals = ritz.compute_true_residuals(A)
+relative_residuals = true_residuals / np.abs(ritz.values)
+
+for i, (val, res) in enumerate(zip(ritz.values, relative_residuals)):
+    print(f"Eigenvalue {i}: {val:.6f}, relative residual: {res:.3e}")
+```
+
+### Source Location
+
+`src/arnoldi/decomposition.py:71`

@@ -1,0 +1,164 @@
+---
+title: Krylov-Schur Algorithm
+description: Understanding the Krylov-Schur algorithm for computing partial Schur decompositions
+---
+
+## What is Krylov-Schur?
+
+The Krylov-Schur algorithm is a modern method for computing partial Schur decompositions of large sparse matrices. It's an improvement over the Implicit Restart Arnoldi (IRA) method used in ARPACK, offering better numerical stability and a cleaner algorithmic structure.
+
+The algorithm computes a partial Schur decomposition:
+
+```
+A * Q[:, :k] ≈ Q[:, :k] * T[:k, :k]
+```
+
+Where `Q` contains orthonormal Schur vectors and `T` is upper triangular (or upper quasi-triangular for real matrices).
+
+## Advantages Over ARPACK
+
+The Krylov-Schur method offers several improvements over ARPACK's Implicit Restart Arnoldi:
+
+1. **Better numerical stability**: Uses explicit Schur decomposition rather than implicit QR steps
+2. **Cleaner algorithm**: The truncation step is more straightforward
+3. **Easier to implement**: No need for complex implicit polynomial filtering
+4. **Thread-safe**: Pure Python/NumPy implementation without Fortran's reentrancy issues
+
+As noted in the project README, ARPACK-NG is not thread-safe and doesn't incorporate recent algorithmic improvements like Krylov-Schur.
+
+## Algorithm Steps
+
+The Krylov-Schur algorithm implemented in `partial_schur` (`krylov_schur.py:10-114`) consists of four main phases:
+
+### 1. Arnoldi Expansion
+
+Expand the Krylov subspace to dimension `max_dim`:
+
+```python
+V_a, H_a, n_iter = arnoldi_decomposition(
+    A, V, H, max_dim=max_dim, start_dim=p, invariant_tol=tol
+)
+m = n_iter
+```
+
+See `krylov_schur.py:51-54` for initialization and `krylov_schur.py:103-106` for restart iterations.
+
+### 2. Rotation (Schur Decomposition)
+
+Compute the Schur decomposition of the Hessenberg matrix and order eigenvalues:
+
+```python
+# Compute Schur form
+T1, Q1 = schur(H_active, output="complex")
+# Reorder by desired criterion (e.g., largest magnitude)
+T2, Q2 = ordered_schur(T1, output="complex", sort_function=sort_function)
+Q = Q1 @ Q2
+```
+
+See `krylov_schur.py:68-72`. The `sort_function` parameter determines which eigenvalues are kept (default: largest magnitude).
+
+### 3. Truncation
+
+Truncate to keep only `p` dimensions (the "active size"):
+
+```python
+# Keep only first p columns
+Qp = Q[:, :p]
+Tp = T2[:p, :p]
+
+V[:, :p] = V_active @ Qp
+V[:, p] = V[:, m]  # Preserve last vector for next Arnoldi expansion
+
+H[:p, :p] = Tp
+old_coupling = H_a[-1, :m]
+H[p, :p] = old_coupling @ Qp
+```
+
+See `krylov_schur.py:74-88`. This is the key difference from implicit restart: the truncation is explicit and uses the Schur decomposition directly.
+
+### 4. Convergence Check
+
+Compute approximate residuals and check convergence:
+
+```python
+approximate_residuals = np.abs(H_a[-1, -1] * Q[m-1, :])
+approximate_convergence = approximate_residuals / np.abs(np.diag(T2[:, :]))
+
+has_converged = np.all(approximate_convergence[:nev] < tol)
+```
+
+See `krylov_schur.py:91-99`. If converged, the algorithm terminates; otherwise, it restarts from step 1.
+
+## Key Parameters
+
+The `partial_schur` function accepts several important parameters:
+
+### Required Parameters
+
+- **A**: The matrix to decompose (must be square)
+- **nev**: Number of eigenvalues to compute
+
+### Optional Parameters
+
+- **max_dim**: Maximum dimension of Krylov subspace (default: `min(max(2*nev + 1, 20), n)`)
+  - Controls memory usage and restart frequency
+  - Larger values mean fewer restarts but more memory
+  
+- **p**: Active size after compression (default: `min(nev + 5, max_dim - 1)`)
+  - Must satisfy `nev ≤ p < max_dim`
+  - Keeping `p > nev` provides "cushion" for better convergence
+  - See `krylov_schur.py:32-36`
+
+- **stopping_criterion**: Convergence tolerance (default: `sqrt(eps)`)
+  - Controls when eigenvalues are considered converged
+  
+- **max_restarts**: Maximum number of restart iterations (default: 100)
+
+- **sort_function**: Function to order eigenvalues (default: `arg_largest_magnitude`)
+  - Determines which eigenvalues are computed
+  - Other options: `arg_largest_real` for real parts
+
+## Implementation Details
+
+### Memory Management
+
+The implementation uses Fortran-order arrays for `V` to speed up orthonormalization:
+
+```python
+V = np.zeros((n, max_dim+1), dtype=dtype, order="F")
+```
+
+This provides up to 3x performance improvement when orthonormalization is the bottleneck (see `krylov_schur.py:40-42`).
+
+### Convergence Tracking
+
+The algorithm returns a `History` object tracking:
+
+- `matvecs[i]`: Number of matrix-vector products for eigenvalue `i`
+- `restarts[i]`: Number of restarts needed for eigenvalue `i`
+
+See `krylov_schur.py:94-97` and the [Convergence](/concepts/convergence) page.
+
+### Return Values
+
+The function returns:
+
+```python
+schur_vecs, schur_mat, history = partial_schur(A, nev, ...)
+```
+
+Where:
+- `schur_vecs`: Schur vectors (orthonormal basis)
+- `schur_mat`: Upper triangular Schur matrix
+- `history`: Convergence history
+
+To get eigenvalues and eigenvectors:
+
+```python
+vals, S = np.linalg.eig(schur_mat)
+vecs = schur_vecs @ S
+```
+
+## Current Limitations
+
+As noted in `krylov_schur.py:58-59`, happy breakdown is not yet fully supported in the Krylov-Schur implementation (it raises an error). This is planned for future versions.

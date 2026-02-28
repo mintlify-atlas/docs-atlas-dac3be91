@@ -1,80 +1,126 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick Start
+description: Get started with Arnoldi in minutes
 ---
 
-## Get started in three steps
+# Quick Start
 
-Get your documentation site running locally and make your first customization.
+This guide will help you get started with Arnoldi by walking through a simple example of computing eigenvalues and eigenvectors of a sparse matrix.
 
-### Step 1: Set up your local environment
+## Basic Example
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+Here's a complete example that computes the 5 largest eigenvalues of a Markov walk matrix and compares the results with ARPACK:
 
-### Step 2: Deploy your changes
+```python
+import numpy as np
+from scipy.sparse.linalg import eigs
+from arnoldi.krylov_schur import partial_schur
+from arnoldi.matrices import mark
+from arnoldi.utils import arg_largest_real
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+# Create a Markov walk matrix
+A = mark(50)
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+# Configure parameters
+TOL = 1e-8
+MAX_RESTARTS = 1_000
+MAX_DIMS = 20
+K = 5
+WHICH = "LR"
+SORT_FUNCTION = arg_largest_real
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+# Compute partial Schur decomposition
+Q, T, history = partial_schur(
+    A,
+    K,
+    max_dim=MAX_DIMS,
+    stopping_criterion=TOL,
+    sort_function=SORT_FUNCTION,
+    max_restarts=MAX_RESTARTS,
+)
 
-### Step 3: Go live
+# Convert Schur transform into eigenpairs
+vals, S = np.linalg.eig(T)
+vecs = Q @ S
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+# Print results
+print("========== Arnoldi Implementation =============")
+for k in range(K):
+    val, vec = vals[k], vecs[:, k]
+    residual = np.linalg.norm(A @ vec - val * vec)
+    norm_residual = residual / np.abs(val)
+    print(
+        f"Residual {k}, value is {np.real(val):.7}, "
+        f"res is {residual:.3e}, norm res is {norm_residual:.3e}"
+    )
 
-## Next steps
+# Compare to ARPACK
+vals_arpack, vecs_arpack = eigs(
+    A, K, ncv=MAX_DIMS, maxiter=MAX_RESTARTS, which=WHICH, tol=TOL
+)
 
-Now that you have your docs running, explore these key features:
+print("\n========== ARPACK (scipy) Implementation =============")
+for k in range(K):
+    val, vec = vals_arpack[k], vecs_arpack[:, k]
+    residual = np.linalg.norm(A @ vec - val * vec)
+    norm_residual = residual / np.abs(val)
+    print(
+        f"Residual {k}, value is {np.real(val):.7}, "
+        f"res is {residual:.3e}, norm res is {norm_residual:.3e}"
+    )
+```
 
-<CardGroup cols={2}>
+## Understanding the Code
 
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
+Let's break down what this code does:
 
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
+1. **Matrix Creation**: We create a Markov walk matrix using `mark(50)`, which is a 50x50 test matrix included in Arnoldi.
 
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
+2. **Configure Parameters**:
+   - `K = 5`: Number of eigenvalues to compute
+   - `MAX_DIMS = 20`: Maximum dimension of the Krylov subspace before restart
+   - `TOL = 1e-8`: Convergence tolerance
+   - `MAX_RESTARTS = 1_000`: Maximum number of restarts allowed
+   - `SORT_FUNCTION = arg_largest_real`: Function to sort eigenvalues (largest real part)
 
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
+3. **Compute Partial Schur Decomposition**: The `partial_schur` function returns:
+   - `Q`: Orthonormal basis for the Krylov subspace
+   - `T`: Upper triangular Schur form (eigenvalues are on the diagonal)
+   - `history`: Convergence history information
 
-</CardGroup>
+4. **Extract Eigenpairs**: Convert the Schur decomposition to eigenvalues and eigenvectors using `np.linalg.eig(T)` and `Q @ S`.
+
+5. **Verify Results**: Compute residuals `||A*v - λ*v||` to verify the accuracy of the computed eigenpairs.
+
+## Minimal Example
+
+If you just want to compute eigenvalues with default settings:
+
+```python
+import numpy as np
+from scipy.sparse import random
+from arnoldi import partial_schur
+
+# Create a random sparse matrix
+A = random(1000, 1000, density=0.01, format='csr')
+
+# Compute 6 eigenvalues with default settings
+Q, T, history = partial_schur(A, nev=6)
+
+# Extract eigenvalues
+eigenvalues = np.linalg.eigvals(T)
+print(f"Computed eigenvalues: {eigenvalues}")
+```
+
+## Next Steps
+
+Now that you've run your first eigenvalue computation with Arnoldi, you can:
+
+- Learn about the [Krylov-Schur algorithm](/concepts/krylov-schur) and [Arnoldi decomposition](/concepts/arnoldi-decomposition)
+- Explore the [API reference](/api/partial-schur) for detailed parameter descriptions
+- Check out [examples](/examples/basic-usage) for more complex use cases
+- Compare performance with [ARPACK](/examples/comparing-arpack)
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  Remember that Arnoldi is still in development. The API may change, especially regarding convergence tracking and history. Always verify your results for critical applications.
 </Note>

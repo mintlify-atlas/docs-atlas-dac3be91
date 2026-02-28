@@ -1,0 +1,108 @@
+---
+title: Installation
+description: Install Arnoldi using uv, pip, or poetry
+---
+
+# Installation
+
+Arnoldi can be installed using several methods. The recommended approach is using `uv`, but you can also use `pip` or `poetry`.
+
+## Prerequisites
+
+Before installing Arnoldi, ensure you have:
+
+- **Python**: Version 3.11 or higher
+- **NumPy**: Version 2.0 or higher (2.3+ on macOS)
+- **SciPy**: Version 1.15.3 or higher
+
+These dependencies will be installed automatically when you install Arnoldi.
+
+## Installation Methods
+
+<Steps>
+  <Step title="Install using uv (Recommended)">
+    The project uses `uv` for dependency management. If you have `uv` installed, simply clone the repository and sync:
+
+    ```bash
+    git clone <repository-url>
+    cd arnoldi
+    uv sync
+    ```
+
+    This will set up a virtual environment and install all dependencies.
+  </Step>
+
+  <Step title="Alternative: Install using pip">
+    You can install Arnoldi using pip:
+
+    ```bash
+    pip install arnoldi
+    ```
+
+    Or install from source:
+
+    ```bash
+    git clone <repository-url>
+    cd arnoldi
+    pip install .
+    ```
+  </Step>
+
+  <Step title="Alternative: Install using poetry">
+    If you prefer using poetry:
+
+    ```bash
+    git clone <repository-url>
+    cd arnoldi
+    poetry install
+    ```
+  </Step>
+</Steps>
+
+## Verify Installation
+
+After installation, verify that Arnoldi is properly installed by importing it in Python:
+
+```python
+import arnoldi
+from arnoldi import partial_schur
+
+print(f"Arnoldi version: {arnoldi.__version__}")
+```
+
+You can also run a quick test to ensure everything is working:
+
+```python
+import numpy as np
+from scipy.sparse import random
+from arnoldi import partial_schur
+
+# Create a small random sparse matrix
+A = random(100, 100, density=0.1, format='csr')
+A = A + A.T  # Make it symmetric
+
+# Compute 5 eigenvalues
+Q, T, history = partial_schur(A, 5, max_dim=15, stopping_criterion=1e-6)
+
+print("Successfully computed partial Schur decomposition!")
+print(f"Shape of Q: {Q.shape}")
+print(f"Shape of T: {T.shape}")
+```
+
+## Development Installation
+
+If you want to contribute to Arnoldi or run tests, install with development dependencies:
+
+```bash
+uv sync --group dev
+```
+
+Or with pip:
+
+```bash
+pip install -e ".[dev,test]"
+```
+
+## Next Steps
+
+Now that you have Arnoldi installed, proceed to the [Quick Start guide](/quickstart) to learn how to use it for eigenvalue computations.

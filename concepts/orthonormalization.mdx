@@ -1,0 +1,157 @@
+---
+title: Orthonormalization
+description: Understanding orthonormalization strategies and their impact on numerical stability
+---
+
+## Why Orthonormalization is Critical
+
+In the Arnoldi decomposition, maintaining orthogonality of the basis vectors is crucial for numerical stability. Loss of orthogonality leads to:
+
+- Spurious eigenvalue convergence
+- Inaccurate eigenvalue estimates
+- Numerical instability in the algorithm
+
+The quality of the eigenvalue approximation depends directly on how well the Krylov basis vectors remain orthogonal throughout the computation.
+
+## Gram-Schmidt Methods
+
+### Modified Gram-Schmidt (MGS)
+
+Modified Gram-Schmidt processes each basis vector sequentially:
+
+```python
+for i in range(j):
+    h[i] = np.vdot(V[:, i], w)
+    w -= h[i] * V[:, i]
+```
+
+See `ortho.py:39-41` for the implementation in `dgks_mgs`.
+
+MGS is more numerically stable than the classical Gram-Schmidt algorithm because it orthogonalizes against the updated vector at each step.
+
+### Standard Gram-Schmidt (GS)
+
+Standard Gram-Schmidt computes all inner products first, then orthogonalizes:
+
+```python
+tmp = gemv(1.0, V, w, trans=2)  # Compute all inner products at once
+h[:j+1] = tmp
+w -= gemv(1.0, V, tmp)  # Orthogonalize
+```
+
+See `ortho.py:94-96` for the implementation in `dgks_gs`.
+
+While theoretically less stable than MGS, standard GS can be implemented without loops using BLAS operations, making it significantly faster in Python.
+
+## DGKS Criterion for Double Orthonormalization
+
+The Daniel-Gragg-Kaufman-Stewart (DGKS) criterion addresses the stability issues of single orthonormalization. The key insight: if the norm of the vector decreases significantly during orthonormalization, perform a second pass.
+
+### The Criterion
+
+After orthonormalizing vector `w`:
+
+```python
+if norm(w_after) < eta * norm(w_before):
+    # Perform second orthonormalization pass
+```
+
+Where `eta` is typically set to `M_SQRT1_2` (≈ 0.707, the square root of 0.5). See `ortho.py:6` and the default parameter in `ortho.py:10,57`.
+
+### Why It Works
+
+When the norm decreases significantly, it indicates that `w` had a large component in the span of the existing basis. In this case, floating-point errors can be substantial, and a second orthonormalization pass recovers lost orthogonality.
+
+As noted in the docstring (`ortho.py:84-88`):
+
+> Using DGKS criterion for double orthonormalization with standard Gram Schmidt (GS) is enough, and modified GS superfluous. In Python, GS can be implemented without a loop so will be significantly faster.
+
+This is based on "On the loss of orthogonality in the Gram-Schmidt orthogonalization process" by Giraud, Langou, Rozložník (2005).
+
+## Implementation: dgks_mgs vs dgks_gs
+
+The library provides two orthonormalization implementations:
+
+### dgks_mgs: Modified Gram-Schmidt with DGKS
+
+```python
+beta, breakdown = dgks_mgs(w, V, h, tol=1e-8, eta=M_SQRT1_2)
+```
+
+Implementation (`ortho.py:9-53`):
+1. Compute initial norm: `before = np.linalg.norm(w)`
+2. Modified Gram-Schmidt orthonormalization
+3. Compute norm after: `after = np.linalg.norm(w)`
+4. If `after < eta * before`, perform second MGS pass
+5. Return final norm and breakdown flag
+
+### dgks_gs: Standard Gram-Schmidt with DGKS
+
+```python
+beta, breakdown = dgks_gs(w, V, h, tol=1e-8, eta=M_SQRT1_2)
+```
+
+Implementation (`ortho.py:56-107`):
+1. Compute initial norm using BLAS: `beta_before = nrm2(w)`
+2. Standard Gram-Schmidt using BLAS `gemv` operations
+3. Compute norm after: `beta = nrm2(w)`
+4. If `beta < beta_before * eta`, perform second GS pass
+5. Return final norm and breakdown flag
+
+## Performance Considerations
+
+### BLAS Usage in dgks_gs
+
+The `dgks_gs` implementation uses optimized BLAS routines:
+
+```python
+from scipy.linalg import get_blas_funcs
+nrm2, gemv = get_blas_funcs(("nrm2", "gemv"), dtype=np.complex128)
+```
+
+See `ortho.py:2-4`. This provides significant performance benefits:
+
+- **nrm2**: Fast vector norm computation
+- **gemv**: General matrix-vector multiplication
+  - `gemv(1.0, V, w, trans=2)` computes `V^H * w` (inner products)
+  - `gemv(1.0, V, tmp)` computes `V * tmp` (orthogonalization)
+
+### Memory Layout
+
+The Krylov-Schur implementation uses Fortran-order arrays for the basis `V`:
+
+```python
+V = np.zeros((n, max_dim+1), dtype=dtype, order="F")
+```
+
+This improves performance by up to 3x when orthonormalization is the bottleneck, as column operations on Fortran-order arrays are more cache-efficient.
+
+## Parameters
+
+Both orthonormalization functions share the same parameters:
+
+- **w**: `ndarray of shape (n,)` - The vector to orthonormalize (modified in-place)
+- **V**: `ndarray of shape (n, j)` - The orthonormal basis to orthogonalize against
+- **h**: `ndarray of shape (j,)` - Array to accumulate scalar products (modified in-place)
+- **tol**: `float` (default: 1e-8) - Breakdown tolerance
+- **eta**: `float` (default: `M_SQRT1_2`) - DGKS criterion threshold
+
+### Returns
+
+- **beta**: `float` - Final norm of `w` after orthonormalization
+- **breakdown**: `bool` - `True` if `beta < tol`, indicating `w` is in the span of `V`
+
+## Breakdown Detection
+
+When `beta < tol`, it indicates that the new vector cannot be orthonormalized, meaning an invariant subspace has been found. This is detected as a "happy breakdown" in the Arnoldi decomposition.
+
+See the [Arnoldi Decomposition](/concepts/arnoldi-decomposition) page for details on how breakdown is handled.
+
+## Choosing eta
+
+The default value `eta = M_SQRT1_2 ≈ 0.707` is a well-established choice in the literature. It balances:
+
+- **Stability**: Low enough to catch significant orthogonality loss
+- **Performance**: High enough to avoid unnecessary reorthogonalization
+
+In practice, this default works well for most problems and rarely needs adjustment.

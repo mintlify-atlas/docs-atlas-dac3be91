@@ -1,0 +1,86 @@
+---
+title: Arnoldi Decomposition
+description: Understanding the Arnoldi decomposition algorithm and its role in building Krylov subspaces
+---
+
+## What is Arnoldi Decomposition?
+
+The Arnoldi decomposition is a fundamental algorithm for computing eigenvalues of large sparse matrices. It builds an orthonormal basis for the Krylov subspace and reduces the original matrix to an upper Hessenberg form, making eigenvalue computation more tractable.
+
+For a square matrix `A` of dimension `n`, the Arnoldi decomposition produces:
+
+```
+A * V[:, :m] = V[:, :m] * H[:m, :m] + H[m, m-1] * (V[:, m] * e_m^H)
+```
+
+Where:
+- `V[:, :m]` is an orthonormal basis of the Krylov subspace
+- `H[:m, :m]` is an upper Hessenberg matrix
+- `e_m^H` is the m-th basis vector (transpose)
+
+## Building the Krylov Basis
+
+The Arnoldi algorithm iteratively builds an orthonormal basis for the Krylov subspace:
+
+```
+K_m(A, v_0) = span{v_0, A*v_0, A^2*v_0, ..., A^(m-1)*v_0}
+```
+
+At each iteration `j`, the algorithm:
+
+1. Computes `w = A * V[:, j]`
+2. Orthonormalizes `w` against all previous basis vectors `V[:, :j+1]`
+3. Stores the orthonormalization coefficients in `H[:j+1, j]`
+4. Normalizes `w` and stores it as `V[:, j+1]`
+
+See `decomposition.py:56-66` for the core implementation loop.
+
+## Implementation Details
+
+The `arnoldi_decomposition` function in `decomposition.py` implements this algorithm:
+
+### Parameters
+
+- **A**: `ndarray of shape (n, n)` - The square matrix to decompose
+- **V**: `ndarray of shape (n, m+1)` - Storage for the Krylov basis (modified in-place)
+- **H**: `ndarray of shape (m+1, m)` - Storage for the Hessenberg matrix (modified in-place)
+- **invariant_tol**: `float` (default: `sqrt(eps)`) - Threshold for detecting happy breakdown
+- **start_dim**: `int` (default: 0) - Starting dimension for the decomposition (used in restarts)
+- **max_dim**: `int` (default: guessed from `V.shape`) - Maximum dimension of the Krylov space
+
+### Returns
+
+- **V_a**: `ndarray of shape (n, max_dim+1)` - The orthonormal Krylov basis
+- **H_a**: `ndarray of shape (max_dim+1, max_dim)` - The upper Hessenberg matrix
+- **n_iter**: `int` - Number of iterations actually run (≤ max_dim)
+
+## Happy Breakdown Detection
+
+A "happy breakdown" occurs when the new vector `w` has a norm below `invariant_tol`, indicating that an invariant subspace has been found. This means:
+
+```python
+beta, breakdown = dgks_gs(w, V[:, :j+1], H[:j+1, j], invariant_tol)
+if breakdown:
+    max_dim = j + 1
+    return V[:, :max_dim+1], H[:max_dim+1, :max_dim], max_dim
+```
+
+See `decomposition.py:60-63`.
+
+When breakdown occurs, the algorithm terminates early because it has found an exact invariant subspace of dimension `j+1`. This is a fortunate situation (hence "happy") as it provides exact eigenvalues without further iteration.
+
+## Numerical Stability
+
+The quality of the Arnoldi decomposition depends critically on maintaining orthogonality of the basis vectors. The implementation uses DGKS-controlled double orthonormalization to ensure numerical stability. See the [Orthonormalization](/concepts/orthonormalization) page for details.
+
+The default `invariant_tol` is set to `sqrt(eps)` where `eps` is machine epsilon for the data type, following the approach used in Julia's ArnoldiMethod.jl package (`decomposition.py:41-42`).
+
+## Usage in Eigensolvers
+
+The Arnoldi decomposition is the foundation for iterative eigensolvers like:
+
+- Implicit Restart Arnoldi (IRA) - used in ARPACK
+- Krylov-Schur algorithm - a more stable alternative to IRA
+- Explicit restart methods with deflation
+
+These methods repeatedly call `arnoldi_decomposition` with different starting dimensions to refine eigenvalue estimates. See [Krylov-Schur](/concepts/krylov-schur) for details on how restarts work.

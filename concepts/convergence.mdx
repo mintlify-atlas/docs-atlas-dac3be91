@@ -1,0 +1,205 @@
+---
+title: Convergence Criteria
+description: Understanding how eigenvalue convergence is detected and tracked in iterative solvers
+---
+
+## Ritz Values and Ritz Vectors
+
+In the Arnoldi method, we don't compute eigenvalues of the full matrix `A` directly. Instead, we compute approximate eigenvalues called **Ritz values** from the projected Hessenberg matrix `H`.
+
+For an Arnoldi decomposition satisfying:
+
+```
+A * V[:, :m] = V[:, :m] * H[:m, :m] + H[m, m-1] * (V[:, m] * e_m^H)
+```
+
+The Ritz values `lambda_i` are the eigenvalues of the smaller matrix `H[:m, :m]`, and the **Ritz vectors** are:
+
+```
+u_i = V[:, :m] * s_i
+```
+
+Where `s_i` is the eigenvector of `H[:m, :m]` corresponding to eigenvalue `lambda_i`.
+
+See `decomposition.py:72-132` for the `RitzDecomposition` class implementation.
+
+## Approximate Residuals
+
+The quality of a Ritz pair `(lambda_i, u_i)` as an approximation to an eigenpair of `A` is measured by the residual:
+
+```
+r_i = A * u_i - lambda_i * u_i
+```
+
+For a true eigenpair, this residual would be zero. The **approximate residual** can be computed cheaply from the Arnoldi decomposition:
+
+```
+||A u_i - lambda_i u_i|| ≈ |H[m, m-1]| * |<e_m, s_i>|
+```
+
+Where `<e_m, s_i>` is the last component of the eigenvector `s_i`.
+
+See `decomposition.py:97-106` for the mathematical explanation and `decomposition.py:127` for the implementation:
+
+```python
+approximate_residuals = np.abs(H[max_dim, max_dim-1] * S[-1])
+```
+
+### Why This Formula Works
+
+From the Arnoldi relation:
+
+```
+A * V_m = V_m * H_m + h_{m+1,m} * v_{m+1} * e_m^T
+```
+
+Multiplying by the eigenvector `s_i` of `H_m`:
+
+```
+A * (V_m * s_i) = V_m * (H_m * s_i) + h_{m+1,m} * v_{m+1} * (e_m^T * s_i)
+A * u_i = lambda_i * u_i + h_{m+1,m} * v_{m+1} * s_i[m-1]
+```
+
+Rearranging:
+
+```
+A * u_i - lambda_i * u_i = h_{m+1,m} * s_i[m-1] * v_{m+1}
+```
+
+Since `v_{m+1}` is normalized, the norm of the residual is:
+
+```
+||r_i|| = |h_{m+1,m} * s_i[m-1]|
+```
+
+## True Residuals Computation
+
+The approximate residuals are cheap to compute but may not be exact, especially for complex matrices (see note in `decomposition.py:105-106`). The **true residuals** require explicit computation:
+
+```python
+true_residuals = norm(A @ u_i - lambda_i * u_i)
+```
+
+Implemented in `decomposition.py:134-146`:
+
+```python
+def compute_true_residuals(self, A):
+    return norm(A @ self.vectors - self.values * self.vectors, axis=0)
+```
+
+This is more expensive as it requires matrix-vector products with the original matrix `A`, but provides the exact error measure.
+
+## Stopping Criterion
+
+Eigenvalues are considered converged when their normalized residual falls below a tolerance:
+
+```python
+approximate_convergence = approximate_residuals / np.abs(ritz_values)
+has_converged = approximate_convergence < tol
+```
+
+See `krylov_schur.py:91-92` for the implementation in the Krylov-Schur algorithm.
+
+### Default Tolerance
+
+The default tolerance is `sqrt(eps)` where `eps` is machine epsilon:
+
+```python
+if stopping_criterion is None:
+    tol = np.sqrt(np.finfo(A.dtype).eps)
+```
+
+See `krylov_schur.py:16-19`. For double precision (`float64`), this is approximately `1.5e-8`.
+
+### Convergence in Krylov-Schur
+
+The Krylov-Schur algorithm checks convergence after each restart:
+
+```python
+for k in range(nev):
+    if approximate_convergence[k] <= tol:
+        history.matvecs[k] = matvecs
+        history.restarts[k] = restart + 1
+
+has_converged = np.all(approximate_convergence[:nev] < tol)
+```
+
+See `krylov_schur.py:94-99`. Individual eigenvalues can converge at different rates.
+
+## Tracking Convergence with History
+
+The library uses a `History` dataclass to track convergence information:
+
+```python
+@dataclasses.dataclass
+class History:
+    matvecs: np.ndarray      # Matrix-vector products per eigenvalue
+    restarts: np.ndarray     # Number of restarts per eigenvalue
+```
+
+See `explicit_restarts.py:13-24` for the implementation.
+
+### Properties
+
+- **k**: Number of eigenvalues being tracked
+- **total_matvecs**: Total matrix-vector products across all eigenvalues
+
+### Usage Example
+
+After computing eigenvalues:
+
+```python
+Q, T, history = partial_schur(A, nev=5, ...)
+
+for k in range(5):
+    print(f"Eigenvalue {k}: {history.matvecs[k]} matvecs, "
+          f"{history.restarts[k]} restarts")
+
+print(f"Total matvecs: {history.total_matvecs}")
+```
+
+## Matrix-Vector Product Counting
+
+The number of matrix-vector products (matvecs) is computed as:
+
+```python
+matvecs = restart * (max_dim - nev) + (m - nev)
+```
+
+See `krylov_schur.py:63` for Krylov-Schur and `explicit_restarts.py:128` for explicit restart deflation.
+
+This counts:
+- Full Arnoldi expansions in previous restarts: `restart * (max_dim - nev)`
+- Current Arnoldi expansion: `m - nev`
+
+The matvec count is a key performance metric, as matrix-vector products dominate the computational cost for large sparse matrices.
+
+## Relative vs Absolute Convergence
+
+The current implementation uses **relative convergence**:
+
+```python
+approximate_convergence = approximate_residuals / np.abs(ritz_values)
+```
+
+This normalizes the residual by the eigenvalue magnitude, which is appropriate when eigenvalues have different scales.
+
+As noted in the README TODO (`README.md:112`), more robust convergence criteria (including absolute and A-norm based) are planned for future versions.
+
+## Convergence in Practice
+
+From the example in `README.md:50-57`, you can verify convergence by computing true residuals:
+
+```python
+Q, T, history = partial_schur(A, K, stopping_criterion=1e-8, ...)
+vals, S = np.linalg.eig(T)
+vecs = Q @ S
+
+for k in range(K):
+    val, vec = vals[k], vecs[:, k]
+    residual = np.linalg.norm(A @ vec - val * vec)
+    norm_residual = residual / np.abs(val)
+    print(f"Normalized residual: {norm_residual:.3e}")
+```
+
+Well-converged eigenvalues typically have normalized residuals near or below the specified tolerance.

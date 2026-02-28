@@ -1,0 +1,226 @@
+---
+title: 'Utility Functions'
+description: 'Helper functions for eigenvalue sorting, random vectors, and Schur reordering'
+---
+
+## rand_normalized_vector
+
+```python
+rand_normalized_vector(n, dtype=np.float64)
+```
+
+Create a random normalized vector.
+
+### Parameters
+
+<ParamField path="n" type="int" required>
+  Length of the vector to generate.
+</ParamField>
+
+<ParamField path="dtype" type="numpy dtype" default="np.float64">
+  Data type of the vector. Can be real (float32, float64) or complex (complex64, complex128).
+</ParamField>
+
+### Returns
+
+<ResponseField name="v" type="ndarray of shape (n,)">
+  Random vector with unit norm (||v|| = 1).
+</ResponseField>
+
+### Example
+
+```python
+import numpy as np
+from arnoldi.utils import rand_normalized_vector
+
+# Generate a random normalized real vector
+v_real = rand_normalized_vector(100)
+print(f"Norm: {np.linalg.norm(v_real):.10f}")  # Should be 1.0
+
+# Generate a random normalized complex vector
+v_complex = rand_normalized_vector(100, dtype=np.complex128)
+print(f"Norm: {np.linalg.norm(v_complex):.10f}")  # Should be 1.0
+```
+
+### Notes
+
+This function uses `np.random.randn()` to generate random entries from a standard normal distribution, then normalizes to unit length. This provides a uniform distribution on the unit sphere.
+
+### Source Location
+
+`src/arnoldi/utils.py:7`
+
+---
+
+## arg_largest_magnitude
+
+```python
+arg_largest_magnitude(x)
+```
+
+Return indices that sort eigenvalues by largest magnitude (absolute value).
+
+### Parameters
+
+<ParamField path="x" type="ndarray" required>
+  Array of eigenvalues (can be real or complex).
+</ParamField>
+
+### Returns
+
+<ResponseField name="indices" type="ndarray of int">
+  Indices that sort x in descending order of magnitude: |x[indices[0]]| ≥ |x[indices[1]]| ≥ ...
+</ResponseField>
+
+### Example
+
+```python
+import numpy as np
+from arnoldi.utils import arg_largest_magnitude
+
+eigenvalues = np.array([1+2j, -3, 0.5, 2-1j, -0.1])
+indices = arg_largest_magnitude(eigenvalues)
+
+print("Eigenvalues sorted by magnitude:")
+for i in indices:
+    print(f"  {eigenvalues[i]}: |λ| = {np.abs(eigenvalues[i]):.3f}")
+
+# Output:
+#   (-3+0j): |λ| = 3.000
+#   (1+2j): |λ| = 2.236
+#   (2-1j): |λ| = 2.236
+#   (0.5+0j): |λ| = 0.500
+#   (-0.1+0j): |λ| = 0.100
+```
+
+### Notes
+
+This is the default sorting function for most eigenvalue solvers in Arnoldi. Computing the largest magnitude eigenvalues is the natural mode for Krylov methods without shift-invert.
+
+### Source Location
+
+`src/arnoldi/utils.py:16`
+
+---
+
+## arg_largest_real
+
+```python
+arg_largest_real(x)
+```
+
+Return indices that sort eigenvalues by largest real part.
+
+### Parameters
+
+<ParamField path="x" type="ndarray" required>
+  Array of eigenvalues (can be real or complex).
+</ParamField>
+
+### Returns
+
+<ResponseField name="indices" type="ndarray of int">
+  Indices that sort x in descending order of real part: Re(x[indices[0]]) ≥ Re(x[indices[1]]) ≥ ...
+</ResponseField>
+
+### Example
+
+```python
+import numpy as np
+from arnoldi.utils import arg_largest_real
+
+eigenvalues = np.array([1+2j, -3, 0.5+0.1j, 2-1j, -0.1])
+indices = arg_largest_real(eigenvalues)
+
+print("Eigenvalues sorted by real part:")
+for i in indices:
+    print(f"  {eigenvalues[i]}: Re(λ) = {np.real(eigenvalues[i]):.3f}")
+
+# Output:
+#   (2-1j): Re(λ) = 2.000
+#   (1+2j): Re(λ) = 1.000
+#   (0.5+0.1j): Re(λ) = 0.500
+#   (-0.1+0j): Re(λ) = -0.100
+#   (-3+0j): Re(λ) = -3.000
+```
+
+### Notes
+
+This sorting is particularly useful for:
+- Markov chains (finding the stationary distribution and slowest decay modes)
+- Stability analysis (rightmost eigenvalues determine stability)
+- Dynamical systems (real parts determine growth/decay rates)
+
+### Source Location
+
+`src/arnoldi/utils.py:20`
+
+---
+
+## ordered_schur
+
+```python
+ordered_schur(a, output="real", *, sort_function=None)
+```
+
+Compute Schur decomposition with eigenvalues sorted by a given sorting function.
+
+### Parameters
+
+<ParamField path="a" type="ndarray of shape (n, n)" required>
+  Square matrix to decompose.
+</ParamField>
+
+<ParamField path="output" type="str" default="real">
+  Type of Schur form:
+  - `"real"`: Real Schur form (quasi-triangular with 2×2 blocks for complex conjugate pairs) - NOT YET IMPLEMENTED
+  - `"complex"`: Complex Schur form (upper triangular)
+</ParamField>
+
+<ParamField path="sort_function" type="callable" default="arg_largest_magnitude">
+  Function to sort eigenvalues. Takes eigenvalues array and returns sorted indices.
+</ParamField>
+
+### Returns
+
+<ResponseField name="T" type="ndarray of shape (n, n)">
+  Schur form matrix (upper triangular for complex output). Eigenvalues appear on the diagonal in the order specified by sort_function.
+</ResponseField>
+
+<ResponseField name="Z" type="ndarray of shape (n, n)">
+  Unitary matrix such that a = Z @ T @ Z.conj().T
+</ResponseField>
+
+### Example
+
+```python
+import numpy as np
+from arnoldi.utils import ordered_schur, arg_largest_real
+
+# Create a test matrix
+A = np.random.randn(10, 10)
+
+# Compute Schur decomposition with eigenvalues sorted by real part
+T, Z = ordered_schur(A, output="complex", sort_function=arg_largest_real)
+
+# Verify decomposition
+reconstructed = Z @ T @ Z.conj().T
+error = np.linalg.norm(A - reconstructed)
+print(f"Reconstruction error: {error:.2e}")
+
+# Eigenvalues are on the diagonal of T
+eigenvalues = np.diag(T)
+print(f"\nEigenvalues (sorted by real part):")
+for i, val in enumerate(eigenvalues):
+    print(f"  λ_{i}: {val:.6f}")
+```
+
+### Notes
+
+This function uses LAPACK's `trexc` routines (complex: `ztrexc`/`ctrexc`, real: `dtrexc`/`strexc`) to reorder the Schur form. The reordering is done by swapping adjacent eigenvalues, which is numerically stable.
+
+The `output="real"` mode is not yet implemented and will raise a ValueError.
+
+### Source Location
+
+`src/arnoldi/utils.py:32`

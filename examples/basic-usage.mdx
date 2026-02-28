@@ -1,0 +1,133 @@
+---
+title: Basic Usage
+description: Get started with Arnoldi using a simple example
+---
+
+This guide walks through a complete basic example of using Arnoldi to compute eigenvalues and eigenvectors of a sparse matrix.
+
+## Complete Example
+
+Here's a full working example that computes the 5 largest eigenvalues (by real part) of a Markov transition matrix:
+
+```python
+import numpy as np
+from scipy.sparse.linalg import eigs
+from arnoldi.krylov_schur import partial_schur
+from arnoldi.matrices import mark
+from arnoldi.utils import arg_largest_real
+
+# Markov walk matrix
+A = mark(50)
+
+TOL = 1e-8
+MAX_RESTARTS = 1_000
+MAX_DIMS = 20
+K = 5
+WHICH = "LR"
+SORT_FUNCTION = arg_largest_real
+
+Q, T, history = partial_schur(
+    A,
+    K,
+    max_dim=MAX_DIMS,
+    stopping_criterion=TOL,
+    sort_function=SORT_FUNCTION,
+    max_restarts=MAX_RESTARTS,
+)
+```
+
+## Step-by-Step Explanation
+
+### 1. Create the Matrix
+
+```python
+from arnoldi.matrices import mark
+
+A = mark(50)
+```
+
+The `mark(50)` function creates a sparse Markov transition matrix for a random walk on a triangular grid. This is a standard test matrix for eigenvalue solvers.
+
+### 2. Set Parameters
+
+```python
+TOL = 1e-8          # Convergence tolerance
+MAX_RESTARTS = 1_000 # Maximum number of restarts
+MAX_DIMS = 20        # Maximum Krylov space dimension
+K = 5                # Number of eigenvalues to compute
+SORT_FUNCTION = arg_largest_real  # Target largest real part
+```
+
+- **TOL**: The algorithm stops when eigenvalues converge within this tolerance
+- **MAX_RESTARTS**: Maximum number of times to restart the Arnoldi iteration
+- **MAX_DIMS**: Maximum dimension of the Krylov subspace before restarting
+- **K**: Number of eigenvalues to compute
+- **SORT_FUNCTION**: Determines which eigenvalues to target (e.g., largest real part, largest magnitude)
+
+### 3. Call partial_schur
+
+```python
+Q, T, history = partial_schur(
+    A,
+    K,
+    max_dim=MAX_DIMS,
+    stopping_criterion=TOL,
+    sort_function=SORT_FUNCTION,
+    max_restarts=MAX_RESTARTS,
+)
+```
+
+The `partial_schur` function returns:
+- **Q**: Orthonormal basis for the Krylov subspace
+- **T**: Upper triangular Schur form matrix
+- **history**: Convergence history data
+
+## Computing Eigenvalues from Schur Form
+
+The Schur decomposition gives us `A ≈ Q @ T @ Q.H`. To get the actual eigenvalues and eigenvectors:
+
+```python
+# Convert Schur transform into eigenpairs
+vals, S = np.linalg.eig(T)
+vecs = Q @ S
+```
+
+The eigenvalues are the eigenvalues of the upper triangular matrix `T`, and the eigenvectors are transformed back to the original space by multiplying with `Q`.
+
+## Checking Residuals
+
+To verify the quality of the computed eigenpairs, check the residual `||A*v - λ*v||`:
+
+```python
+print("========== true residuals, our implementation =============")
+for k in range(K):
+    val, vec = vals[k], vecs[:, k]
+    residual = np.linalg.norm(A @ vec - val * vec)
+    norm_residual = residual / np.abs(val)
+    print(
+        f"Residual {k}, value is {np.real(val):.7}, res is {residual:.3e}, norm res is {norm_residual:.3e}"
+    )
+```
+
+The residual should be small (on the order of the tolerance or smaller) for converged eigenvalues.
+
+## Expected Output
+
+For a well-converged solution, you should see output like:
+
+```
+========== true residuals, our implementation =============
+Residual 0, value is 0.9999999, res is 1.234e-10, norm res is 1.234e-10
+Residual 1, value is 0.9897234, res is 2.456e-10, norm res is 2.481e-10
+Residual 2, value is 0.9782341, res is 3.123e-10, norm res is 3.193e-10
+Residual 3, value is 0.9653421, res is 2.987e-10, norm res is 3.094e-10
+Residual 4, value is 0.9510234, res is 3.456e-10, norm res is 3.634e-10
+```
+
+The normalized residuals should be on the order of the specified tolerance (1e-8 in this example).
+
+## Next Steps
+
+- See [Comparing with ARPACK](/examples/comparing-arpack) to validate results against SciPy
+- Learn about [test matrices](/examples/test-matrices) available in Arnoldi
+- Explore the [API reference](/api/partial-schur) for more advanced usage

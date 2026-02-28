@@ -1,0 +1,260 @@
+---
+title: Performance Optimization
+description: Learn how to optimize Arnoldi eigensolvers for maximum performance
+---
+
+This guide covers performance optimization strategies for the Arnoldi library, based on implementation details and benchmarks from the codebase.
+
+## Orthonormalization Performance
+
+Orthonormalization is often the bottleneck in Arnoldi iterations. The library provides two implementations with different performance characteristics:
+
+### dgks_gs: BLAS-based Gram-Schmidt
+
+**Recommended for most use cases.** This implementation uses BLAS routines (`gemv` and `nrm2`) for orthonormalization:
+
+```python
+from arnoldi.ortho import dgks_gs
+```
+
+**Advantages:**
+- Significantly faster due to BLAS optimization
+- No explicit loops in Python
+- Better cache utilization
+
+**How it works:** Uses standard Gram-Schmidt (GS) with the DGKS criterion (Giraud, Langou, Rozložník, 2005) to trigger double orthonormalization. The DGKS criterion states that double orthonormalization is performed when:
+
+```
+norm(w after ortho) < eta * norm(w before ortho)
+```
+
+where `eta = sqrt(0.5)` by default.
+
+### dgks_mgs: Modified Gram-Schmidt
+
+**Loop-based implementation** using Modified Gram-Schmidt:
+
+```python
+from arnoldi.ortho import dgks_mgs
+```
+
+**Characteristics:**
+- Python loops over basis vectors
+- Slower but sometimes more numerically stable
+- Uses the same DGKS criterion for reorthonormalization
+
+According to the code comments in `ortho.py:84-88`, "Using DGKS criterion for double orthonormalization with standard Gram Schmidt (GS) is enough, and modified GS superfluous. In Python, GS can be implemented without a loop so will be significantly faster."
+
+## Memory Layout Optimization
+
+Using Fortran-ordered arrays can dramatically improve performance when orthonormalization is the bottleneck.
+
+### Using order="F" for Arrays
+
+From `krylov_schur.py:40-42`:
+
+```python
+# Using order=F significantly speeds up the cases where orthonormalization
+# is a bottleneck. Observed 3x performance increase in some cases
+V = np.zeros((n, max_dim+1), dtype=dtype, order="F")
+```
+
+**Why this matters:**
+- Fortran-order stores columns contiguously in memory
+- BLAS routines operate on columns during orthonormalization
+- **3x speedup** observed in some test cases
+
+**Recommendation:** When creating large Krylov basis matrices, always use `order="F"`:
+
+```python
+import numpy as np
+
+# Good - Fortran order for column operations
+V = np.zeros((n, m), dtype=np.complex128, order="F")
+
+# Less optimal for BLAS column operations
+V = np.zeros((n, m), dtype=np.complex128)  # defaults to C order
+```
+
+## Choosing Algorithm Parameters
+
+### max_dim Parameter
+
+The maximum dimension of the Krylov subspace before restart:
+
+```python
+Q, T, history = partial_schur(
+    A, nev=5,
+    max_dim=20,  # Krylov subspace dimension
+    # ...
+)
+```
+
+**Default:** `min(max(2 * nev + 1, 20), n)` (from `krylov_schur.py:30`)
+
+**Trade-offs:**
+- **Larger max_dim:** Fewer restarts, better convergence, more memory
+- **Smaller max_dim:** More restarts, less memory, may need more matvecs
+
+**Recommended range:** `2 * nev` to `3 * nev` for most problems
+
+### p Parameter (Compression Size)
+
+The active subspace size after Krylov-Schur compression:
+
+```python
+Q, T, history = partial_schur(
+    A, nev=5,
+    max_dim=20,
+    p=10,  # Active size after restart
+    # ...
+)
+```
+
+**Default:** `min(nev + 5, max_dim - 1)` (from `krylov_schur.py:34`)
+
+**Constraint:** `nev <= p < max_dim`
+
+**Trade-offs:**
+- **Larger p:** More Ritz values retained, faster convergence
+- **Smaller p:** Less work per restart, potential for more restarts
+
+**Recommendation:** Start with default (`nev + 5`), increase if convergence is slow
+
+## Stopping Criterion and Matvec Count
+
+The `stopping_criterion` parameter controls convergence tolerance and directly affects the number of matrix-vector products (matvecs):
+
+```python
+Q, T, history = partial_schur(
+    A, nev=5,
+    stopping_criterion=1e-8,  # Convergence tolerance
+    # ...
+)
+```
+
+**Default:** `sqrt(machine_epsilon)` ≈ `1e-8` for float64
+
+**Effect on performance:**
+- **Tighter tolerance** (e.g., `1e-12`): More matvecs, higher accuracy
+- **Looser tolerance** (e.g., `1e-6`): Fewer matvecs, lower accuracy
+
+Convergence is checked using approximate residuals:
+
+```python
+approximate_convergence = approximate_residuals / abs(eigenvalue)
+```
+
+**Access matvec counts:**
+
+```python
+Q, T, history = partial_schur(A, nev=5, ...)
+
+# Matvecs per eigenvalue
+print(history.matvecs)  # array of matvec counts for each eigenvalue
+
+# Total matvecs
+print(history.total_matvecs)  # sum of all matvecs
+
+# Restarts per eigenvalue
+print(history.restarts)  # number of restarts for each eigenvalue
+```
+
+## Future Optimizations (TODO)
+
+The following optimizations are planned but not yet implemented:
+
+### Locking and Dynamic p
+
+From the README TODO list:
+- **Locking:** Once eigenvalues converge, lock them and focus computation on remaining values
+- **Dynamic p:** Adjust active subspace size `p` based on convergence progress
+
+**Expected benefit:** Reduce matvecs for problems where eigenvalues converge at different rates
+
+### Memory Space Optimization
+
+From README TODO:
+> "ensure memory space is mostly V and nothing else as function of input size"
+
+**Goal:** Minimize memory overhead beyond the essential Krylov basis `V`
+
+### Happy Breakdown Handling
+
+Currently not supported in Krylov-Schur (see `krylov_schur.py:58-59`):
+
+```python
+if m != max_dim:
+    happy_breakdown = True
+    raise ValueError("Happy breakdown not supported yet")
+```
+
+**What it means:** The Krylov subspace has exhausted the invariant subspace before reaching `max_dim`
+
+**Impact:** Early termination opportunity currently missed
+
+## Comparison Metrics
+
+When comparing performance against ARPACK or other solvers, track these metrics:
+
+### Number of Matrix-Vector Products
+
+The primary cost metric for iterative eigensolvers:
+
+```python
+Q, T, history = partial_schur(A, nev, ...)
+total_matvecs = history.total_matvecs
+```
+
+**Compare with ARPACK:**
+
+```python
+from scipy.sparse.linalg import eigs
+
+# ARPACK doesn't return matvec count directly
+# Use ncv (max_dim) and maxiter (max_restarts) as rough estimate
+vals, vecs = eigs(A, k=nev, ncv=max_dim, maxiter=max_restarts)
+```
+
+### Runtime
+
+Wall-clock time depends on matvec cost and overhead:
+
+```python
+import time
+
+start = time.time()
+Q, T, history = partial_schur(A, nev, ...)
+runtime = time.time() - start
+
+print(f"Total matvecs: {history.total_matvecs}")
+print(f"Runtime: {runtime:.3f} seconds")
+print(f"Time per matvec: {runtime / history.total_matvecs:.6f} seconds")
+```
+
+### Convergence Quality
+
+Verify eigenvalue accuracy with true residuals:
+
+```python
+import numpy as np
+
+Q, T, history = partial_schur(A, nev, ...)
+vals, S = np.linalg.eig(T)
+vecs = Q @ S
+
+for k in range(nev):
+    val, vec = vals[k], vecs[:, k]
+    residual = np.linalg.norm(A @ vec - val * vec)
+    norm_residual = residual / np.abs(val)
+    print(f"Eigenvalue {k}: normalized residual = {norm_residual:.3e}")
+```
+
+## Performance Checklist
+
+- [ ] Use `order="F"` for Krylov basis matrices
+- [ ] Prefer `dgks_gs` (BLAS) over `dgks_mgs` (loop-based)
+- [ ] Set `max_dim` to `2-3 * nev` for good convergence/memory balance
+- [ ] Adjust `stopping_criterion` based on accuracy requirements
+- [ ] Monitor `history.matvecs` to track computational cost
+- [ ] Compare performance using both matvec count and runtime

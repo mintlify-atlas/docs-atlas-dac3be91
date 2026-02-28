@@ -1,0 +1,176 @@
+---
+title: 'Test Matrices'
+description: 'Generators for test matrices used in eigenvalue problem benchmarks'
+---
+
+## mark
+
+```python
+mark(m)
+```
+
+Generate a sparse Markov transition matrix for a random walk on a (lower) triangular grid with m rows.
+
+### Parameters
+
+<ParamField path="m" type="int" required>
+  Number of rows in the triangular grid. The resulting matrix will have size n × n, where n = m(m+1)/2.
+</ParamField>
+
+### Returns
+
+<ResponseField name="A" type="scipy.sparse.csr_matrix">
+  Sparse transition matrix of size n × n representing a random walk on the triangular grid.
+</ResponseField>
+
+### Example
+
+```python
+from arnoldi.matrices import mark
+import numpy as np
+
+# Create a Markov matrix for a triangular grid with 50 rows
+A = mark(50)
+
+print(f"Matrix shape: {A.shape}")  # (1275, 1275)
+print(f"Number of nonzeros: {A.nnz}")
+print(f"Sparsity: {A.nnz / (A.shape[0] ** 2):.2%}")
+
+# Verify it's a stochastic matrix (rows sum to 1)
+row_sums = A.sum(axis=1)
+print(f"Row sums range: [{row_sums.min():.6f}, {row_sums.max():.6f}]")
+```
+
+### Notes
+
+This matrix is commonly used in eigenvalue solver benchmarks. The dominant eigenvalue is 1 (as expected for a stochastic matrix), and the convergence characteristics provide a good test for iterative eigensolvers.
+
+See section 2.5.1 of "Numerical methods for large eigenvalue problems, 2nd edition" by Yousef Saad for details on this test matrix and numerical examples of eigenvalues and convergence speed.
+
+### Source Location
+
+`src/arnoldi/matrices.py:5`
+
+---
+
+## laplace
+
+```python
+laplace(n, dtype=None)
+```
+
+Create a Laplacian operator of dimension n.
+
+### Parameters
+
+<ParamField path="n" type="int" required>
+  Dimension of the Laplacian matrix.
+</ParamField>
+
+<ParamField path="dtype" type="numpy dtype" default="None">
+  Data type for the matrix elements. If None, uses NumPy's default.
+</ParamField>
+
+### Returns
+
+<ResponseField name="L" type="scipy.sparse.dia_matrix">
+  Sparse Laplacian matrix of size n × n. This is a symmetric, tridiagonal matrix with -2 on the main diagonal and 1 on the upper and lower diagonals.
+</ResponseField>
+
+### Example
+
+```python
+from arnoldi.matrices import laplace
+import numpy as np
+
+# Create a 100×100 Laplacian
+L = laplace(100)
+
+print(f"Matrix shape: {L.shape}")
+print(f"Matrix type: {type(L)}")
+
+# Convert to dense to visualize structure (for small n)
+L_small = laplace(5, dtype=np.float64).toarray()
+print("\nLaplacian structure (n=5):")
+print(L_small)
+
+# Output:
+# [[-2.  1.  0.  0.  0.]
+#  [ 1. -2.  1.  0.  0.]
+#  [ 0.  1. -2.  1.  0.]
+#  [ 0.  0.  1. -2.  1.]
+#  [ 0.  0.  0.  1. -2.]]
+```
+
+### Notes
+
+The discrete Laplacian operator arises in many applications including:
+- Discretization of differential equations
+- Graph theory (graph Laplacian)
+- Image processing
+- Physics simulations
+
+The eigenvalues are all real and negative (or zero), making this a good test case for symmetric eigenvalue problems.
+
+### Source Location
+
+`src/arnoldi/matrices.py:87`
+
+---
+
+## laplace_eigen
+
+```python
+laplace_eigen(n)
+```
+
+Returns the n eigenvalues of a Laplacian operator of dimension n.
+
+### Parameters
+
+<ParamField path="n" type="int" required>
+  Dimension of the Laplacian matrix.
+</ParamField>
+
+### Returns
+
+<ResponseField name="eigenvalues" type="ndarray of shape (n,)">
+  All n eigenvalues of the Laplacian in order, computed analytically using the formula:
+  λ_k = -2 + 2cos(kπ/(n+1)) for k = 1, 2, ..., n
+</ResponseField>
+
+### Example
+
+```python
+from arnoldi.matrices import laplace, laplace_eigen
+import numpy as np
+
+n = 100
+
+# Get analytical eigenvalues
+eigenvalues_exact = laplace_eigen(n)
+
+print(f"Smallest eigenvalue: {eigenvalues_exact[0]:.6f}")
+print(f"Largest eigenvalue: {eigenvalues_exact[-1]:.6f}")
+print(f"Eigenvalue range: [{eigenvalues_exact.min():.6f}, {eigenvalues_exact.max():.6f}]")
+
+# Verify against numerical computation
+L = laplace(n).toarray()
+eigenvalues_computed = np.linalg.eigvalsh(L)
+
+error = np.linalg.norm(np.sort(eigenvalues_exact) - eigenvalues_computed)
+print(f"\nError vs numerical eigenvalues: {error:.2e}")
+```
+
+### Notes
+
+This function is useful for:
+- Testing and validating eigenvalue solvers
+- Comparing computed eigenvalues against analytical results
+- Understanding the spectrum without expensive computation
+
+The analytical formula comes from the known eigenvalues of the discrete 1D Laplacian operator. See, for example, "Lectures on Applied Mathematics" by Steven Spielman at Yale (cs.yale.edu/homes/spielman/561/2009/lect02-09.pdf).
+
+### Source Location
+
+`src/arnoldi/matrices.py:76`

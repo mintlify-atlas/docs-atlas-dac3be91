@@ -1,0 +1,359 @@
+---
+title: Troubleshooting
+description: Common issues and solutions when using the Arnoldi library
+---
+
+This guide covers common problems you may encounter and how to resolve them.
+
+## Convergence Issues
+
+### "Has not converged !" Error
+
+The most common error occurs when eigenvalues fail to converge within the allowed number of restarts:
+
+```python
+ValueError: Has not converged !
+```
+
+This error is raised in `krylov_schur.py:109` when:
+
+```python
+if not has_converged:
+    raise ValueError("Has not converged !")
+```
+
+Convergence is checked using approximate residuals:
+
+```python
+approximate_convergence = approximate_residuals / abs(eigenvalue)
+has_converged = np.all(approximate_convergence[:nev] < tol)
+```
+
+### Solution 1: Increase max_restarts
+
+Allow more restart iterations:
+
+```python
+from arnoldi.krylov_schur import partial_schur
+
+# Default
+Q, T, history = partial_schur(A, nev=5, max_restarts=100)
+
+# Increase for difficult problems
+Q, T, history = partial_schur(A, nev=5, max_restarts=1000)
+```
+
+**When to use:**
+- Large, difficult matrices
+- Clustered eigenvalues
+- Nearly degenerate spectra
+
+**Trade-off:** More restarts = longer runtime, but higher chance of convergence
+
+### Solution 2: Adjust stopping_criterion
+
+Relax the convergence tolerance:
+
+```python
+# Strict tolerance (may not converge)
+Q, T, history = partial_schur(A, nev=5, stopping_criterion=1e-12)
+
+# More relaxed (default is ~1e-8)
+Q, T, history = partial_schur(A, nev=5, stopping_criterion=1e-6)
+```
+
+**When to use:**
+- High accuracy not required
+- Difficult convergence behavior
+- Exploratory analysis
+
+**Recommendation:** Start with default (`sqrt(machine_epsilon)` ≈ 1e-8), then adjust based on residual checks
+
+### Solution 3: Increase max_dim
+
+A larger Krylov subspace can improve convergence:
+
+```python
+# Default: min(max(2 * nev + 1, 20), n)
+Q, T, history = partial_schur(A, nev=5, max_dim=20)  # default
+
+# Larger subspace for better convergence
+Q, T, history = partial_schur(A, nev=5, max_dim=50)
+```
+
+**When to use:**
+- Slow or stalled convergence
+- Sufficient memory available
+- Eigenvalues close together
+
+**Trade-off:** Larger `max_dim` uses more memory but reduces restarts
+
+### Solution 4: Adjust p Parameter
+
+Increase the active subspace size after restart:
+
+```python
+# Default: min(nev + 5, max_dim - 1)
+Q, T, history = partial_schur(A, nev=5, max_dim=20, p=10)  # default
+
+# Retain more Ritz values
+Q, T, history = partial_schur(A, nev=5, max_dim=20, p=15)
+```
+
+**Constraint:** Must satisfy `nev <= p < max_dim`
+
+**When to use:**
+- Eigenvalues converging very slowly
+- More "memory" between restarts needed
+
+## Happy Breakdown Error
+
+```python
+ValueError: Happy breakdown not supported yet
+```
+
+This error occurs when the Krylov subspace exhausts the invariant subspace before reaching `max_dim`.
+
+**From `krylov_schur.py:57-59`:**
+
+```python
+if m != max_dim:
+    happy_breakdown = True
+    raise ValueError("Happy breakdown not supported yet")
+```
+
+### What is Happy Breakdown?
+
+Happy breakdown means the algorithm found an invariant subspace early - theoretically a good thing! However, special handling is required to avoid numerical issues.
+
+### Current Status
+
+**Not yet implemented** in the Krylov-Schur implementation. This is a TODO item (README line 117):
+
+```
+- [ ] handle happy breakdown in Krylov-Schur
+```
+
+### Workaround
+
+Happy breakdown is rare in practice. If you encounter it:
+
+1. **Use explicit_restarts_with_deflation** instead of `partial_schur`:
+
+```python
+from arnoldi.explicit_restarts import explicit_restarts_with_deflation
+
+vals, vecs, history = explicit_restarts_with_deflation(
+    A, nev=5,
+    max_dim=20,
+    stopping_criterion=1e-8,
+    max_restarts=100
+)
+```
+
+2. **Reduce max_dim** to make breakdown less likely (not recommended)
+
+## Choosing the Right Sort Function
+
+The `sort_function` parameter determines which eigenvalues are computed:
+
+```python
+from arnoldi.utils import arg_largest_magnitude, arg_largest_real
+from arnoldi.krylov_schur import partial_schur
+
+# Default: largest magnitude
+Q, T, history = partial_schur(A, nev=5, sort_function=arg_largest_magnitude)
+
+# Largest real part (useful for stability analysis)
+Q, T, history = partial_schur(A, nev=5, sort_function=arg_largest_real)
+```
+
+### arg_largest_magnitude (Default)
+
+Sorts eigenvalues by `|λ|` (absolute value).
+
+**Use for:**
+- General eigenvalue problems
+- Finding dominant eigenvalues
+- Power iteration-like behavior
+
+**Equivalent to:** `which='LM'` in ARPACK
+
+### arg_largest_real
+
+Sorts eigenvalues by `Re(λ)` (real part).
+
+**Use for:**
+- Stability analysis (rightmost eigenvalues)
+- Markov chains (eigenvalues near 1)
+- Real matrices where real eigenvalues are of interest
+
+**Equivalent to:** `which='LR'` in ARPACK
+
+### Choosing the Wrong Sort Function
+
+**Problem:** May converge to unexpected eigenvalues or converge slowly
+
+**Example:**
+```python
+# For a Markov matrix, eigenvalues cluster near 0 and 1
+# Using arg_largest_magnitude might find eigenvalues near -1 or +1
+# Using arg_largest_real ensures you get eigenvalues with largest real part
+
+from arnoldi.matrices import mark
+A = mark(50)  # Markov matrix
+
+# Better for Markov chains
+Q, T, history = partial_schur(A, nev=5, sort_function=arg_largest_real)
+```
+
+## Convergence for Specific Eigenvalues
+
+In `explicit_restarts_with_deflation`, if a specific eigenvalue fails to converge:
+
+```python
+ValueError: Could not converge for value k
+```
+
+From `explicit_restarts.py:160`:
+
+```python
+else:
+    raise ValueError(f"Could not converge for value {k}")
+```
+
+This error shows which eigenvalue index `k` failed to converge.
+
+### Solution
+
+- Increase `max_restarts` specifically for that eigenvalue
+- Check if the eigenvalue is clustered (harder to resolve)
+- Consider using `partial_schur` (Krylov-Schur) instead, which handles multiple eigenvalues more robustly
+
+## Project Status and Limitations
+
+### Not Recommended for Production Use
+
+**From README line 73-74:**
+
+> "It is not recommended for real use yet. I expect the API to change, especially in terms of convergence tracking and history."
+
+**Implications:**
+- API may change in future versions
+- Use for research, prototyping, or experimentation
+- For production code, stick with `scipy.sparse.linalg.eigs` (ARPACK)
+
+### Current Limitations
+
+From the README TODO section, the following features are **not yet implemented**:
+
+1. **More robust convergence criteria** (relative/absolute/A norm)
+2. **Locking and dynamic p** - currently all eigenvalues use same restart logic
+3. **Happy breakdown handling** in Krylov-Schur
+4. **Real-space computation** for real matrices (currently always uses complex)
+5. **LinearOperator support** - only dense/sparse arrays currently
+6. **Hermitian/symmetric optimization** (Lanczos)
+7. **Shift-invert mode** - only largest eigenvalues supported
+
+### Future Roadmap
+
+**Pre-1.0 TODO items:**
+- Implement locking and dynamic `p` parameter
+- Handle happy breakdown
+- Add more robust convergence criteria
+- LinearOperator support
+
+**Post-1.0 TODO items:**
+- Lanczos for Hermitian matrices
+- Shift-invert for interior eigenvalues
+- Generalized eigenvalue problems
+- Single precision support
+- Block Krylov-Schur
+
+## Choosing Between Algorithms
+
+### partial_schur (Krylov-Schur)
+
+**Use when:**
+- Computing multiple eigenvalues (recommended)
+- General non-Hermitian matrices
+- Best performance and robustness
+
+**Advantages:**
+- Modern algorithm (Stewart, 2002)
+- Efficient restarts with deflation
+- Handles multiple eigenvalues well
+
+**Limitations:**
+- Happy breakdown not yet supported
+
+```python
+from arnoldi.krylov_schur import partial_schur
+
+Q, T, history = partial_schur(A, nev=5, max_dim=20)
+vals, S = np.linalg.eig(T)
+vecs = Q @ S
+```
+
+### explicit_restarts_with_deflation
+
+**Use when:**
+- You need happy breakdown support
+- Computing eigenvalues one at a time
+- Researching deflation strategies
+
+**Advantages:**
+- Handles happy breakdown (returns successfully)
+- Explicit deflation by orthogonalizing new vectors against converged ones
+
+**Limitations:**
+- May require more restarts than Krylov-Schur
+- Computes eigenvalues sequentially
+
+```python
+from arnoldi.explicit_restarts import explicit_restarts_with_deflation
+
+vals, vecs, history = explicit_restarts_with_deflation(
+    A, nev=5, max_dim=20
+)
+```
+
+### naive_explicit_restarts
+
+**Do not use** except for educational purposes.
+
+- Only computes 1 eigenvalue (`k=1` hardcoded)
+- No deflation
+- From `explicit_restarts.py:40`: "Naive arnoldi w/o restart only really works for 1 eigenvalue"
+
+## Getting Help
+
+If you encounter issues not covered here:
+
+1. **Check convergence history:**
+   ```python
+   print(f"Restarts: {history.restarts}")
+   print(f"Matvecs: {history.matvecs}")
+   ```
+
+2. **Verify residuals:**
+   ```python
+   for k in range(nev):
+       residual = np.linalg.norm(A @ vecs[:, k] - vals[k] * vecs[:, k])
+       print(f"True residual {k}: {residual:.3e}")
+   ```
+
+3. **Compare against ARPACK:**
+   ```python
+   from scipy.sparse.linalg import eigs
+   vals_arpack, vecs_arpack = eigs(A, k=nev, which='LM')
+   ```
+
+4. **Review comparison scripts:**
+   - `scripts/compare-against-arpack.py`
+   - `scripts/compare-against-slepc.py`
+
+5. **Check the literature:**
+   - See README references section for mathematical background
+   - Stewart (2002): "A Krylov-Schur Algorithm for Large Eigenproblems"
+   - Sorensen: Papers on Implicitly Restarted Arnoldi
