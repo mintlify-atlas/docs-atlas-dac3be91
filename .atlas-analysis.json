@@ -1,0 +1,79 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "Arnoldi",
+  "projectDescription": "A pure Python eigensolver for sparse matrices using the Krylov-Schur algorithm",
+  "theme": "palm",
+  "primaryColor": "#1e40af",
+  "lightColor": "#3b82f6",
+  "darkColor": "#1e3a8a",
+  "navigation": {
+    "groups": [
+      {
+        "group": "Get Started",
+        "pages": [
+          "introduction",
+          "installation",
+          "quickstart"
+        ]
+      },
+      {
+        "group": "Core Concepts",
+        "pages": [
+          "concepts/arnoldi-decomposition",
+          "concepts/krylov-schur",
+          "concepts/orthonormalization",
+          "concepts/convergence"
+        ]
+      },
+      {
+        "group": "API Reference",
+        "pages": [
+          "api/partial-schur",
+          "api/decomposition",
+          "api/explicit-restarts",
+          "api/matrices",
+          "api/utils",
+          "api/ortho"
+        ]
+      },
+      {
+        "group": "Examples",
+        "pages": [
+          "examples/basic-usage",
+          "examples/comparing-arpack",
+          "examples/test-matrices"
+        ]
+      },
+      {
+        "group": "Advanced",
+        "pages": [
+          "advanced/performance",
+          "advanced/troubleshooting"
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Pure Python implementation without ARPACK/Fortran dependencies",
+    "Krylov-Schur algorithm for sparse eigenvalue problems",
+    "Thread-safe and re-entrant design",
+    "Multiple orthonormalization strategies (MGS, DGKS)",
+    "Explicit restart methods with deflation",
+    "Built-in test matrices (Markov, Laplace)"
+  ],
+  "publicApiSurface": [
+    "partial_schur",
+    "arnoldi_decomposition",
+    "RitzDecomposition",
+    "explicit_restarts_with_deflation",
+    "naive_explicit_restarts",
+    "mark",
+    "laplace",
+    "laplace_eigen",
+    "arg_largest_magnitude",
+    "arg_largest_real",
+    "ordered_schur",
+    "dgks_gs",
+    "dgks_mgs"
+  ]
+}
